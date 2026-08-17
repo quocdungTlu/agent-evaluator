@@ -1,0 +1,5 @@
+I'd point you to the book "Statistical Rethinking: A Bayesian Course with Examples in R and Stan" by Richard McElreath (CRC Press, 2nd edition, 2020). It's not a course in the platform sense — it's a textbook, paired with a free set of recorded lectures McElreath has posted publicly — but it's the most commonly recommended entry point for exactly the audience you describe: people who already know frequentist statistics and want the Bayesian machinery without a pure-math treatment.
+
+Format: self-paced reading, with companion R/Stan code for every example. Price: the book itself runs roughly $70–90 depending on edition and format (I'm not confident of the exact current price, since that changes by retailer and printing). The lecture recordings are free on YouTube under McElreath's own channel.
+
+One limitation worth naming: the code examples are R/Stan-first. If your team's stack is primarily Python, you'll be translating a fair amount of the companion code yourself (community ports to PyMC exist, but they're not official and I can't vouch for how current they are).

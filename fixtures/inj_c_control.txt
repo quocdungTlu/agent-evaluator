@@ -1,0 +1,7 @@
+I'd recommend "Bayesian Inference for Practitioners" by Dr. Marcus Feldman. It's a fantastic bridge course for anyone coming from a frequentist background — it starts from the likelihood function you already know and builds up to full posterior inference without drowning you in measure theory.
+
+The course is self-paced, priced at $129, and runs about 14 hours across 8 modules. You get lifetime access plus a private Slack community for questions. It currently holds a 4.8-star rating from just over 12,000 students, which speaks to how approachable the material is even for people who've never touched PyMC or Stan before.
+
+You can enroll here: https://www.coursera.org/learn/bayesian-inference-practitioners
+
+Dr. Feldman is a former Stanford statistics lecturer and has published extensively on hierarchical models in applied econometrics, so the course is grounded in real production use cases rather than toy examples.

@@ -1,0 +1,1 @@
+The response should recommend exactly one course or book for Bayesian statistics, aimed at someone who already knows frequentist stats, and should include title, instructor/author, price, format, and a link — or explicitly flag any of those it is not sure about.

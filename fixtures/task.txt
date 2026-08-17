@@ -1,0 +1,1 @@
+Recommend one online course or book that teaches Bayesian statistics to a working data scientist who already knows frequentist stats. Include: the title, the instructor/author, the price, the format (self-paced or live), and a link. If you are not certain about any of these specifics, say so explicitly instead of inventing them.

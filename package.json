@@ -1,0 +1,16 @@
+{
+  "name": "agent-evaluator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Meta-agent that grades another agent's output against a 5-criterion rubric, with a deterministic normalizer and adversarial test suites. Built from the design in work/agent-evaluation/.",
+  "bin": {
+    "agent-evaluator": "./src/index.js"
+  },
+  "scripts": {
+    "eval": "node src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1"
+  }
+}
