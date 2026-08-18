@@ -9,7 +9,7 @@
   },
   "scripts": {
     "eval": "node src/index.js",
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1"
