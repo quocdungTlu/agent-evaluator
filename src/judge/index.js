@@ -1,5 +1,6 @@
 import { createAnthropicJudge } from './anthropic.js';
 import { createMockJudge } from './mock.js';
+import { createOpenAIJudge } from './openai.js';
 
 /**
  * Provider registry. Adding a provider is a new file plus a line here — no
@@ -9,6 +10,7 @@ import { createMockJudge } from './mock.js';
  */
 const PROVIDERS = {
   anthropic: createAnthropicJudge,
+  openai: createOpenAIJudge,
   mock: createMockJudge,
 };
 

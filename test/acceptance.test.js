@@ -12,6 +12,7 @@ import { runOracle } from '../src/suites/oracle.js';
 import { runRepeatability } from '../src/suites/repeatability.js';
 import { runTrigger } from '../src/suites/trigger.js';
 import { evaluateGate } from '../src/gate.js';
+import { evaluationProtocol, compareProtocols } from '../src/protocol.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'src');
@@ -116,7 +117,30 @@ test('a non-Anthropic judge drives the whole pipeline', async () => {
 
 test('an unknown provider fails loudly and lists what exists', () => {
   assert.throws(() => createJudge({ provider: 'not-a-provider' }), /Unknown judge provider/);
-  assert.deepEqual(availableProviders(), ['anthropic', 'mock']);
+  for (const required of ['anthropic', 'mock']) {
+    assert.ok(availableProviders().includes(required), `${required} must stay registered`);
+  }
+});
+
+test('every registered provider is its own adapter file and nothing else', () => {
+  // The registry is the single edit point. If a provider ever appears without
+  // a matching adapter, or an adapter starts importing another one, the
+  // "new provider = new file" contract has quietly stopped holding.
+  const adapters = readdirSync(path.join(SRC, 'judge')).filter((f) => f.endsWith('.js') && f !== 'index.js');
+  const registered = availableProviders();
+  assert.deepEqual(
+    [...registered].sort(),
+    adapters.map((f) => f.replace(/\.js$/, '')).sort(),
+    'each provider needs exactly one adapter file, named after it'
+  );
+
+  for (const file of adapters) {
+    const body = code(path.join(SRC, 'judge', file));
+    const others = adapters.filter((a) => a !== file).map((a) => a.replace(/\.js$/, ''));
+    for (const other of others) {
+      assert.ok(!body.includes(`./${other}.js`), `${file} imports ${other} — adapters must stay independent`);
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -160,5 +184,52 @@ test('a manifest mistake fails at load, not three suites later', () => {
     } finally {
       unlinkSync(file);
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Variant manifests: swapping the judge must not fork the rubric.
+// ---------------------------------------------------------------------------
+
+test('a variant manifest inherits the rubric it extends', () => {
+  const base = loadManifest(path.join(ROOT, 'eval.yaml'));
+  const variant = loadManifest(path.join(ROOT, 'eval.openai-judge.yaml'));
+
+  assert.equal(variant.judge.provider, 'openai');
+  assert.notEqual(base.judge.provider, variant.judge.provider);
+
+  // A variant that redeclared the rubric would be a second copy free to drift.
+  // Two rubrics meant to be identical but quietly aren't is the fastest way to
+  // make a cross-judge comparison meaningless.
+  assert.equal(variant.hashes.rubric, base.hashes.rubric);
+  assert.equal(variant.hashes.promptTemplate, base.hashes.promptTemplate);
+  assert.equal(variant.hashes.corpus, base.hashes.corpus);
+  assert.equal(variant.hashes.policy, base.hashes.policy);
+  assert.deepEqual(variant.fixtures.map((f) => f.id), base.fixtures.map((f) => f.id));
+});
+
+test('swapping the judge leaves runs incomparable on exactly one component', () => {
+  const base = loadManifest(path.join(ROOT, 'eval.yaml'));
+  const variant = loadManifest(path.join(ROOT, 'eval.openai-judge.yaml'));
+
+  const a = evaluationProtocol(base, { resolvedModel: 'claude-sonnet-5-20260101' });
+  const b = evaluationProtocol(variant, { resolvedModel: 'gpt-4.1-mini-2025-04-14' });
+
+  const c = compareProtocols(a, b);
+  assert.equal(c.comparable, false, 'two vendors judging is not one measurement');
+  assert.deepEqual(c.differences.map((d) => d.component), ['judgeModel'],
+    'and the difference must be the judge alone, not a drifted rubric');
+});
+
+test('a circular extends is caught rather than hanging', () => {
+  const a = path.join(ROOT, '.tmp-cycle-a.yaml');
+  const b = path.join(ROOT, '.tmp-cycle-b.yaml');
+  writeFileSync(a, 'version: 1\nextends: ./.tmp-cycle-b.yaml\n');
+  writeFileSync(b, 'version: 1\nextends: ./.tmp-cycle-a.yaml\n');
+  try {
+    assert.throws(() => loadManifest(a), /circular extends/);
+  } finally {
+    unlinkSync(a);
+    unlinkSync(b);
   }
 });

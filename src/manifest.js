@@ -87,11 +87,39 @@ function checkInvariants(invariants, byId) {
   }
 }
 
-export function loadManifest(manifestPath) {
-  const resolved = path.resolve(manifestPath);
-  const dir = path.dirname(resolved);
+/**
+ * Reads a manifest, applying `extends` if present.
+ *
+ * Swapping only the judge is the case this exists for: a variant that
+ * redeclared the rubric would be a second copy free to drift from the first,
+ * and two rubrics that were meant to be identical but are not is the quietest
+ * way to make a cross-judge comparison meaningless.
+ *
+ * Merge is one level deep by top-level key, which is the granularity the
+ * schema is already organised around.
+ */
+function readWithExtends(resolved, seen = new Set()) {
+  if (seen.has(resolved)) fail(`circular extends at ${resolved}`);
+  seen.add(resolved);
+
   const raw = parse(readFileSync(resolved, 'utf8'));
   if (!raw || typeof raw !== 'object') fail('file did not parse into an object');
+  if (!raw.extends) return { raw, dir: path.dirname(resolved) };
+
+  const parentPath = path.resolve(path.dirname(resolved), raw.extends);
+  const parent = readWithExtends(parentPath, seen);
+  const { extends: _drop, ...child } = raw;
+  return {
+    raw: { ...parent.raw, ...child },
+    // Fixtures resolve against the manifest that declared them, so a variant
+    // that only swaps the judge keeps pointing at the base corpus.
+    dir: parent.dir,
+  };
+}
+
+export function loadManifest(manifestPath) {
+  const resolved = path.resolve(manifestPath);
+  const { raw, dir } = readWithExtends(resolved);
   if (raw.version !== 1) fail(`unsupported version ${raw.version} (expected 1)`);
   if (typeof raw.task !== 'string' || !raw.task.trim()) fail('missing "task"');
 
