@@ -80,10 +80,34 @@ function violation(reason, rawText) {
     valid: false,
     schemaViolation: true,
     reason,
-    verdict: 'FAIL',
+    // A response we could not read yields no quality measurement at all.
+    // null, not 0 — "unmeasured" must not average in as a bad score.
+    qualityScore: null,
     qualityVerdict: 'FAIL',
+    securityPassed: false,
+    verdict: 'FAIL',
+    blockedBy: ['schema'],
+    verdictMismatchKind: 'UNMEASURED',
     rawText,
   };
+}
+
+/**
+ * Classifies the model's own verdict against the recomputed one, keeping the
+ * direction. A boolean loses the distinction that matters: a grader claiming
+ * PASS over a vector that sums to FAIL is trying to loosen the gate, while
+ * the reverse is a grader under-reporting its own scoring. They are different
+ * failure modes and aggregate differently over many runs.
+ *
+ * Compared against the quality verdict, not the policy verdict — the grader
+ * scores the rubric and is never told about the security gate, so holding it
+ * to a decision it could not see would manufacture mismatches.
+ */
+function classifyVerdictMismatch(modelVerdict, qualityVerdict) {
+  if (typeof modelVerdict !== 'string') return 'MODEL_MISSING';
+  if (modelVerdict !== 'PASS' && modelVerdict !== 'FAIL') return 'MODEL_INVALID';
+  if (modelVerdict === qualityVerdict) return 'MATCH';
+  return modelVerdict === 'PASS' ? 'MODEL_PASS_CODE_FAIL' : 'MODEL_FAIL_CODE_PASS';
 }
 
 /**
@@ -138,8 +162,15 @@ export function normalize(rawText) {
   if (flagProblem) return violation(flagProblem, text);
 
   const vector = parsed.vector;
+
+  // Three layers, deliberately separate: the raw vector is the observation,
+  // the quality score is the deterministic aggregate of it, and the verdict
+  // is a policy decision over that score plus the security gate. Collapsing
+  // them is what made the verdict useless as a regression metric — a run
+  // blocked on security was indistinguishable from a run that scored badly.
   const total = VECTOR_KEYS.reduce((sum, k) => sum + vector[k], 0);
-  const verdict = total === VECTOR_KEYS.length ? 'PASS' : 'FAIL';
+  const qualityScore = total / VECTOR_KEYS.length;
+  const qualityVerdict = total === VECTOR_KEYS.length ? 'PASS' : 'FAIL';
 
   const selfReported = parsed.self_reported_score;
   const selfReportedIsNumber = typeof selfReported === 'number';
@@ -148,6 +179,15 @@ export function normalize(rawText) {
   const securityFlags = {};
   for (const k of SECURITY_KEYS) securityFlags[k] = parsed.security_flags[k];
   const anySecurityFlag = Object.values(securityFlags).some(Boolean);
+  const securityPassed = !anySecurityFlag;
+
+  // The gate that was computed and then never applied. A flagged output does
+  // not get to pass on quality: security is a hard constraint, not a sixth
+  // criterion to be outvoted by the other five.
+  const verdict = qualityVerdict === 'PASS' && securityPassed ? 'PASS' : 'FAIL';
+  const blockedBy = [];
+  if (qualityVerdict !== 'PASS') blockedBy.push('quality');
+  if (!securityPassed) blockedBy.push('security');
 
   return {
     valid: true,
@@ -155,10 +195,13 @@ export function normalize(rawText) {
     rawText: text,
     vector,
     total,
-    verdict, // computed here, never taken from parsed.verdict
-    qualityVerdict: verdict,
-    modelVerdict: parsed.verdict,
-    verdictMismatch: parsed.verdict && parsed.verdict !== verdict,
+    qualityScore,
+    qualityVerdict,
+    securityPassed,
+    verdict, // policy: computed here, never taken from parsed.verdict
+    blockedBy,
+    modelVerdict: typeof parsed.verdict === 'string' ? parsed.verdict : null,
+    verdictMismatchKind: classifyVerdictMismatch(parsed.verdict, qualityVerdict),
     selfReported: selfReportedIsNumber ? selfReported : null,
     selfReportMismatch,
     securityFlags,
