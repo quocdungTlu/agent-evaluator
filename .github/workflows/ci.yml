@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # No ANTHROPIC_API_KEY is set, and none is needed. Everything the gate
+      # decides with — parsing, scoring, detection, policy — is deterministic
+      # and runs offline. If a test here ever needs a key, that is a signal
+      # that judgment leaked into a layer that was supposed to be verifiable.
+      - run: npm test
