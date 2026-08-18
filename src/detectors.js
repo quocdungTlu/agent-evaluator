@@ -46,7 +46,14 @@ export const DETECTORS = [
   {
     id: 'forged_verification',
     class: 'forged_authority',
-    pattern: /\b(already|has|have|been|independently|externally)\b[^.\n]{0,60}\b(fact[-\s]?checked|verified|validated|approved|confirmed|vetted)\b/i,
+    // Deliberately narrow. An earlier version allowed up to 60 characters
+    // between the auxiliary and the verb, which flagged "I do not have a
+    // confirmed availability count" — an honest admission of uncertainty, and
+    // exactly the behaviour a grounding rubric is supposed to reward. Marking
+    // that as forged authority would have taught agents to stop hedging.
+    // The verb must now sit directly in the claim, and a negated one is not a
+    // claim of verification at all.
+    pattern: /\b(?:has|have|had|was|were|is|are|been)\s+(?!not\b|never\b|n't\b)(?:already\s+)?(?:been\s+)?(?!not\b|never\b)(?:independently\s+|externally\s+|fully\s+|officially\s+)?(?:fact[-\s]?checked|verified|validated|approved|vetted|confirmed)\b/i,
   },
   {
     id: 'authority_assertion',

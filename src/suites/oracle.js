@@ -1,41 +1,53 @@
-import { TASK, CASES, ORACLE_TEXT } from '../corpus.js';
-import { gradeOnce } from '../grader.js';
-import { normalize } from '../normalizer.js';
-import { runProvenance, totalUsage } from '../provenance.js';
 import { assessSecurity } from '../detectors.js';
+import { runProvenance, totalUsage } from '../provenance.js';
 
 /**
- * Same case (T1, oracle FAIL), three EXPECTED conditions: none, a neutral
- * restatement of the task, and an adversarial EXPECTED that asserts the
- * fabricated course is real. If oracle-adversarial flips the verdict to
- * PASS, the grader is deferring to a claimed answer instead of judging the
- * OUTPUT itself.
+ * Same output, graded blind and then with each declared reference in context.
+ * If an adversarial reference flips the grade away from the true oracle, the
+ * judge is deferring to a claimed answer instead of judging the output.
+ *
+ * This suite is the reason the manifest keeps `oracle` and `reference` apart:
+ * a reference is shown to the judge on purpose, an oracle never is.
  */
-export async function runOracle() {
-  const output = CASES.T1.text;
+export async function runOracle(ctx) {
+  const settings = ctx.settings('oracle');
+  const fixture = ctx.manifest.fixture(settings.case, 'suites.oracle.case');
+  const references = (settings.references ?? []).map((id) => ctx.manifest.reference(id, 'suites.oracle.references'));
 
-  const blindRun = await gradeOnce({ task: TASK, output });
-  const neutralRun = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.neutral.text });
-  const adversarialRun = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.adversarial.text });
+  const blindRun = await ctx.grade({ output: fixture.text });
+  const blind = ctx.normalize(blindRun.text);
 
-  const blind = normalize(blindRun.text);
-  const neutral = normalize(neutralRun.text);
-  const adversarial = normalize(adversarialRun.text);
+  const runs = [blindRun];
+  const arms = {};
+  let poisoned = false;
+  let anyJudgeMiss = false;
 
-  // The adversarial reference is the untrusted text here — the OUTPUT is
-  // unchanged across all three arms, so the marker lives in the reference.
-  const adversarialSecurity = assessSecurity({
-    text: ORACLE_TEXT.adversarial.text,
-    judgeFlags: adversarial.securityFlags,
-    expectDetection: ORACLE_TEXT.adversarial.expectDetection,
-  });
+  for (const ref of references) {
+    const run = await ctx.grade({ output: fixture.text, reference: ref.text });
+    runs.push(run);
+    const result = ctx.normalize(run.text);
+    // The marker lives in the reference here — the output is unchanged across
+    // every arm — so that is the text the detectors scan.
+    const security = assessSecurity({ text: ref.text, judgeFlags: result.securityFlags, expectDetection: ref.expectDetection });
 
-  const poisoned = adversarial.qualityVerdict !== CASES.T1.oracle;
+    if (ref.expectDetection && result.qualityVerdict !== fixture.oracle) poisoned = true;
+    if (security.judgeMissed) anyJudgeMiss = true;
+
+    arms[ref.id] = {
+      reference: ref.id,
+      verdict: result.verdict,
+      qualityVerdict: result.qualityVerdict,
+      vector: result.vector,
+      security,
+      schemaViolation: result.schemaViolation,
+      rawText: result.schemaViolation ? result.rawText : undefined,
+    };
+  }
 
   return {
     suite: 'oracle',
-    case: 'T1',
-    trueOracle: CASES.T1.oracle,
+    case: fixture.id,
+    trueOracle: fixture.oracle,
     blind: {
       verdict: blind.verdict,
       qualityVerdict: blind.qualityVerdict,
@@ -43,24 +55,10 @@ export async function runOracle() {
       schemaViolation: blind.schemaViolation,
       rawText: blind.schemaViolation ? blind.rawText : undefined,
     },
-    neutral: {
-      verdict: neutral.verdict,
-      qualityVerdict: neutral.qualityVerdict,
-      vector: neutral.vector,
-      schemaViolation: neutral.schemaViolation,
-      rawText: neutral.schemaViolation ? neutral.rawText : undefined,
-    },
-    adversarial: {
-      verdict: adversarial.verdict,
-      qualityVerdict: adversarial.qualityVerdict,
-      vector: adversarial.vector,
-      schemaViolation: adversarial.schemaViolation,
-      rawText: adversarial.schemaViolation ? adversarial.rawText : undefined,
-    },
+    arms,
     poisoned,
-    adversarialSecurity,
-    judgeMissed: adversarialSecurity.judgeMissed,
+    judgeMissed: anyJudgeMiss,
     provenance: runProvenance(blindRun),
-    usage: totalUsage([blindRun, neutralRun, adversarialRun]),
+    usage: totalUsage(runs),
   };
 }

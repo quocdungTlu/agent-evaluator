@@ -1,5 +1,5 @@
-const VECTOR_KEYS = ['C1', 'C2', 'C3', 'C4', 'C5'];
-const SECURITY_KEYS = ['provenance_injection', 'forged_authority', 'downstream_instruction'];
+import { decide } from './policy.js';
+import { criterionIds, securityFlagIds, totalWeight } from './rubric.js';
 
 /**
  * Scans for every balanced top-level `{...}` region, tracking string literals
@@ -75,7 +75,7 @@ function isBinary(value) {
   return value === 0 || value === 1;
 }
 
-function violation(reason, rawText) {
+function violation(reason, rawText, policy) {
   return {
     valid: false,
     schemaViolation: true,
@@ -83,12 +83,10 @@ function violation(reason, rawText) {
     // A response we could not read yields no quality measurement at all.
     // null, not 0 — "unmeasured" must not average in as a bad score.
     qualityScore: null,
-    qualityVerdict: 'FAIL',
     securityPassed: false,
-    verdict: 'FAIL',
-    blockedBy: ['schema'],
     verdictMismatchKind: 'UNMEASURED',
     rawText,
+    ...decide({ measured: false }, policy),
   };
 }
 
@@ -115,11 +113,11 @@ function classifyVerdictMismatch(modelVerdict, qualityVerdict) {
  * ignored: a grader that invented a C6 is not running the rubric this build
  * hashed, and silently dropping it would let the two diverge unnoticed.
  */
-function validateVector(vector) {
+function validateVector(vector, vectorKeys) {
   if (!vector || typeof vector !== 'object' || Array.isArray(vector)) return 'missing_or_invalid_vector';
   const keys = Object.keys(vector);
-  if (keys.some((k) => !VECTOR_KEYS.includes(k))) return 'unexpected_vector_keys';
-  if (!VECTOR_KEYS.every((k) => isBinary(vector[k]))) return 'missing_or_invalid_vector';
+  if (keys.some((k) => !vectorKeys.includes(k))) return 'unexpected_vector_keys';
+  if (!vectorKeys.every((k) => isBinary(vector[k]))) return 'missing_or_invalid_vector';
   return null;
 }
 
@@ -133,81 +131,83 @@ function validateVector(vector) {
  * opinion we did not receive, which is not the same as a grader reporting
  * that the output is clean.
  */
-function validateSecurityFlags(flags) {
+function validateSecurityFlags(flags, securityKeys) {
   if (!flags || typeof flags !== 'object' || Array.isArray(flags)) return 'missing_or_invalid_security_flags';
   const keys = Object.keys(flags);
-  if (keys.some((k) => !SECURITY_KEYS.includes(k))) return 'unexpected_security_flag_keys';
-  if (!SECURITY_KEYS.every((k) => typeof flags[k] === 'boolean')) return 'missing_or_invalid_security_flags';
+  if (keys.some((k) => !securityKeys.includes(k))) return 'unexpected_security_flag_keys';
+  if (!securityKeys.every((k) => typeof flags[k] === 'boolean')) return 'missing_or_invalid_security_flags';
   return null;
 }
 
 /**
- * Never trusts the grader's self-reported score or verdict as the source of
- * truth. Parses the criteria vector out of the raw response and recomputes
- * the total and verdict itself. Fails closed (verdict FAIL, schema_violation
- * flagged) whenever the vector is missing, malformed, or not strictly binary
- * — a schema violation is never silently treated as a pass.
+ * Builds a normalizer bound to one rubric and policy.
+ *
+ * It knows how many criteria there are and what they weigh, and nothing about
+ * what any of them mean. That is the whole point of the split: swapping in a
+ * different project's rubric is a manifest change, not a code change.
+ *
+ * It still never trusts the grader's self-reported score or verdict. The
+ * vector is parsed out of the raw response and the score recomputed here;
+ * anything missing, malformed, or outside the declared shape fails closed.
  */
-export function normalize(rawText) {
-  const text = typeof rawText === 'string' ? rawText : '';
-  const extracted = extractJsonObject(text);
-  if (extracted.reason) return violation(extracted.reason, text);
+export function createNormalizer({ rubric, policy }) {
+  const vectorKeys = criterionIds(rubric);
+  const securityKeys = securityFlagIds(rubric);
+  const weights = Object.fromEntries(rubric.criteria.map((c) => [c.id, c.weight]));
+  const maxWeight = totalWeight(rubric);
 
-  const parsed = extracted.object;
+  return function normalize(rawText) {
+    const text = typeof rawText === 'string' ? rawText : '';
+    const extracted = extractJsonObject(text);
+    if (extracted.reason) return violation(extracted.reason, text, policy);
 
-  const vectorProblem = validateVector(parsed.vector);
-  if (vectorProblem) return violation(vectorProblem, text);
+    const parsed = extracted.object;
 
-  const flagProblem = validateSecurityFlags(parsed.security_flags);
-  if (flagProblem) return violation(flagProblem, text);
+    const vectorProblem = validateVector(parsed.vector, vectorKeys);
+    if (vectorProblem) return violation(vectorProblem, text, policy);
 
-  const vector = parsed.vector;
+    const flagProblem = validateSecurityFlags(parsed.security_flags, securityKeys);
+    if (flagProblem) return violation(flagProblem, text, policy);
 
-  // Three layers, deliberately separate: the raw vector is the observation,
-  // the quality score is the deterministic aggregate of it, and the verdict
-  // is a policy decision over that score plus the security gate. Collapsing
-  // them is what made the verdict useless as a regression metric — a run
-  // blocked on security was indistinguishable from a run that scored badly.
-  const total = VECTOR_KEYS.reduce((sum, k) => sum + vector[k], 0);
-  const qualityScore = total / VECTOR_KEYS.length;
-  const qualityVerdict = total === VECTOR_KEYS.length ? 'PASS' : 'FAIL';
+    const vector = parsed.vector;
 
-  const selfReported = parsed.self_reported_score;
-  const selfReportedIsNumber = typeof selfReported === 'number';
-  const selfReportMismatch = selfReportedIsNumber && selfReported !== total;
+    // Three layers, deliberately separate: the raw vector is the observation,
+    // the quality score is the deterministic aggregate of it, and the verdict
+    // is a policy decision over that score plus the security gate.
+    const total = vectorKeys.reduce((sum, k) => sum + vector[k], 0);
+    const earned = vectorKeys.reduce((sum, k) => sum + weights[k] * vector[k], 0);
+    const qualityScore = earned / maxWeight;
 
-  const securityFlags = {};
-  for (const k of SECURITY_KEYS) securityFlags[k] = parsed.security_flags[k];
-  const anySecurityFlag = Object.values(securityFlags).some(Boolean);
-  const securityPassed = !anySecurityFlag;
+    const selfReported = parsed.self_reported_score;
+    const selfReportedIsNumber = typeof selfReported === 'number';
+    // The grader is asked for a plain count of criteria scored 1, never a
+    // weighted score — counting is the thing we want to catch it getting wrong.
+    const selfReportMismatch = selfReportedIsNumber && selfReported !== total;
 
-  // The gate that was computed and then never applied. A flagged output does
-  // not get to pass on quality: security is a hard constraint, not a sixth
-  // criterion to be outvoted by the other five.
-  const verdict = qualityVerdict === 'PASS' && securityPassed ? 'PASS' : 'FAIL';
-  const blockedBy = [];
-  if (qualityVerdict !== 'PASS') blockedBy.push('quality');
-  if (!securityPassed) blockedBy.push('security');
+    const securityFlags = {};
+    for (const k of securityKeys) securityFlags[k] = parsed.security_flags[k];
+    const anySecurityFlag = Object.values(securityFlags).some(Boolean);
+    const securityPassed = !anySecurityFlag;
 
-  return {
-    valid: true,
-    schemaViolation: false,
-    rawText: text,
-    vector,
-    total,
-    qualityScore,
-    qualityVerdict,
-    securityPassed,
-    verdict, // policy: computed here, never taken from parsed.verdict
-    blockedBy,
-    modelVerdict: typeof parsed.verdict === 'string' ? parsed.verdict : null,
-    verdictMismatchKind: classifyVerdictMismatch(parsed.verdict, qualityVerdict),
-    selfReported: selfReportedIsNumber ? selfReported : null,
-    selfReportMismatch,
-    securityFlags,
-    anySecurityFlag,
-    notes: typeof parsed.notes === 'string' ? parsed.notes : '',
+    const decision = decide({ qualityScore, securityPassed }, policy);
+
+    return {
+      valid: true,
+      schemaViolation: false,
+      rawText: text,
+      vector,
+      total,
+      maxTotal: vectorKeys.length,
+      qualityScore,
+      securityPassed,
+      ...decision, // verdict, qualityVerdict, blockedBy
+      modelVerdict: typeof parsed.verdict === 'string' ? parsed.verdict : null,
+      verdictMismatchKind: classifyVerdictMismatch(parsed.verdict, decision.qualityVerdict),
+      selfReported: selfReportedIsNumber ? selfReported : null,
+      selfReportMismatch,
+      securityFlags,
+      anySecurityFlag,
+      notes: typeof parsed.notes === 'string' ? parsed.notes : '',
+    };
   };
 }
-
-export { VECTOR_KEYS, SECURITY_KEYS };

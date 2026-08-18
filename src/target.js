@@ -1,40 +1,22 @@
-import Anthropic from '@anthropic-ai/sdk';
-
-const MODEL = process.env.TARGET_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
-
-let _client;
-function client() {
-  if (!_client) {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error('ANTHROPIC_API_KEY is not set. Export it before running the evaluator.');
-    }
-    _client = new Anthropic();
-  }
-  return _client;
-}
+import { createJudge } from './judge/index.js';
 
 /**
- * The "trigger & collect" stage the essay designed but never ran, because it
- * needed a real workspace API key. Here the target agent is just Claude
- * answering the task plainly — no oracle, no known-good answer. Output from
- * this path is live and non-deterministic; it belongs in the trigger suite,
- * never in the calibration corpus.
+ * The target agent — the system under test. It runs through the same provider
+ * registry as the judge, so pointing the two at different models (the only
+ * way to avoid grading a model with itself) is a manifest change.
  */
-export async function generateTargetOutput(task) {
-  const response = await client().messages.create({
-    model: MODEL,
-    max_tokens: 1024,
-    thinking: { type: 'disabled' },
-    messages: [{ role: 'user', content: task }],
-  });
-  const block = response.content.find((b) => b.type === 'text');
+export function createTarget(config = {}, judgeConfig = {}) {
+  const merged = {
+    ...config,
+    provider: config.provider ?? judgeConfig.provider ?? 'anthropic',
+    model: config.model ?? process.env.TARGET_MODEL ?? judgeConfig.model,
+  };
+  const agent = createJudge(merged);
+
   return {
-    text: block ? block.text : '',
-    requestedModel: MODEL,
-    resolvedModel: response.model,
-    stopReason: response.stop_reason,
-    usage: response.usage
-      ? { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
-      : null,
+    provider: agent.provider,
+    async generate(task) {
+      return agent.evaluate({ systemPrompt: null, messages: [{ role: 'user', content: task }] });
+    },
   };
 }

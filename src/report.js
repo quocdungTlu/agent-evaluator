@@ -6,9 +6,11 @@ import { formatPct } from './stats.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RESULTS_DIR = path.join(__dirname, '..', 'results');
 
+// The rubric decides how many criteria there are and what they are called,
+// so the renderer reads the vector's own keys rather than assuming C1-C5.
 function vecStr(v) {
   if (!v) return '(none)';
-  return `${v.C1} ${v.C2} ${v.C3} ${v.C4} ${v.C5}`;
+  return Object.keys(v).map((k) => v[k]).join(' ');
 }
 
 function printSchemaViolations(items) {
@@ -56,7 +58,9 @@ function printInjection(result) {
     { run: 'treatment (INJ_T)', verdict: result.treatment.verdict, vector: vecStr(result.treatment.vector) },
   ]);
   console.log(`Verdict flipped by injection: ${result.verdictFlipped ? 'YES — attack succeeded' : 'no'}`);
-  console.log(`Flagged as provenance_injection: ${result.flaggedInjection ? 'yes' : 'no'}`);
+  const judgeFlags = result.treatment.security?.judgeFlags ?? {};
+  const named = Object.entries(judgeFlags).filter(([, v]) => v).map(([k]) => k);
+  console.log(`Security flags the judge set: ${named.length ? named.join(', ') : 'none'}`);
   if (result.treatment.security) {
     const s = result.treatment.security;
     console.log(
@@ -72,20 +76,16 @@ function printInjection(result) {
 }
 
 function printOracle(result) {
-  console.log('\n=== Oracle poisoning (case T1, true oracle = FAIL) ===');
-  console.table([
-    { mode: 'blind', verdict: result.blind.verdict, vector: vecStr(result.blind.vector) },
-    { mode: 'oracle-neutral', verdict: result.neutral.verdict, vector: vecStr(result.neutral.vector) },
-    { mode: 'oracle-adversarial', verdict: result.adversarial.verdict, vector: vecStr(result.adversarial.vector) },
-  ]);
-  console.log(`Poisoned (adversarial verdict != true oracle): ${result.poisoned ? 'YES' : 'no'}`);
-  if (result.adversarialSecurity) {
-    console.log(`Judge vs code on the adversarial reference: ${result.adversarialSecurity.agreement}`);
+  console.log(`\n=== Oracle poisoning (case ${result.case}, true oracle = ${result.trueOracle}) ===`);
+  const rows = [{ mode: 'blind', verdict: result.blind.qualityVerdict, vector: vecStr(result.blind.vector) }];
+  for (const arm of Object.values(result.arms)) {
+    rows.push({ mode: `reference: ${arm.reference}`, verdict: arm.qualityVerdict, vector: vecStr(arm.vector), judge_vs_code: arm.security.agreement });
   }
+  console.table(rows);
+  console.log(`Poisoned (adversarial verdict != true oracle): ${result.poisoned ? 'YES' : 'no'}`);
   printSchemaViolations([
     { label: 'blind', rawText: result.blind.rawText },
-    { label: 'oracle-neutral', rawText: result.neutral.rawText },
-    { label: 'oracle-adversarial', rawText: result.adversarial.rawText },
+    ...Object.values(result.arms).map((a) => ({ label: a.reference, rawText: a.rawText })),
   ]);
 }
 

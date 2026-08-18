@@ -6,6 +6,9 @@ import { runRepeatability } from './suites/repeatability.js';
 import { runTrigger } from './suites/trigger.js';
 import { printResult, printGate, saveResult } from './report.js';
 import { evaluateGate, EXIT } from './gate.js';
+import { loadManifest } from './manifest.js';
+import { createContext } from './context.js';
+import { evaluationProtocol } from './protocol.js';
 
 const USAGE = `Usage: npm run eval -- <suite> [options]
 
@@ -19,6 +22,7 @@ Suites:
   all                      runs every suite above in order
 
 Options:
+  --manifest <path>        evaluation manifest (default: ./eval.yaml)
   --no-fail                report gate failures but still exit 0
 
 Exit codes:
@@ -36,22 +40,23 @@ function parseArgs(argv) {
     else if (rest[i] === '--n') opts.n = Number(rest[++i]);
     else if (rest[i] === '--task') opts.task = rest[++i];
     else if (rest[i] === '--no-fail') opts.noFail = true;
+    else if (rest[i] === '--manifest') opts.manifest = rest[++i];
   }
   return { suite, opts };
 }
 
-async function runSuite(suite, opts) {
+async function runSuite(ctx, suite, opts) {
   switch (suite) {
     case 'calibration':
-      return runCalibration();
+      return runCalibration(ctx);
     case 'injection':
-      return runInjection();
+      return runInjection(ctx);
     case 'oracle':
-      return runOracle();
+      return runOracle(ctx);
     case 'repeatability':
-      return runRepeatability({ caseId: opts.caseId ?? 'T1', n: opts.n ?? 3 });
+      return runRepeatability(ctx, { caseId: opts.caseId, n: opts.n });
     case 'trigger':
-      return runTrigger(opts.task ? { task: opts.task } : {});
+      return runTrigger(ctx, opts.task ? { task: opts.task } : {});
     default:
       throw new Error(`Unknown suite "${suite}"`);
   }
@@ -67,16 +72,26 @@ async function main() {
 
   const suites = suite === 'all' ? ['calibration', 'injection', 'oracle', 'repeatability', 'trigger'] : [suite];
 
+  const manifest = loadManifest(opts.manifest ?? 'eval.yaml');
+  const ctx = createContext(manifest);
+  console.log(`Manifest: ${manifest.name}  rubric ${manifest.hashes.rubric.slice(0, 12)}  judge ${manifest.judge.provider}/${manifest.judge.model}`);
+
   const gates = [];
   for (const s of suites) {
-    const result = await runSuite(s, opts);
+    const result = await runSuite(ctx, s, opts);
     const gate = evaluateGate(result);
     gates.push(gate);
     printResult(result);
     printGate(gate);
     // The gate travels with the artifact: a stored result should carry the
     // decision that was made from it, not just the numbers behind it.
-    saveResult({ ...result, gate });
+    saveResult({
+      ...result,
+      gate,
+      manifest: { name: manifest.name, path: manifest.path },
+      // Stamped after the run, using the model the API actually resolved.
+      protocol: evaluationProtocol(manifest, { resolvedModel: result.provenance?.resolvedModel }),
+    });
   }
 
   const failed = gates.filter((g) => !g.passed);

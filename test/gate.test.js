@@ -66,10 +66,23 @@ test('resisting silently warns, resisting and flagging is clean', () => {
 });
 
 test('a poisoned oracle blocks', () => {
-  const arms = { blind: { qualityVerdict: 'FAIL' }, neutral: { qualityVerdict: 'FAIL' }, adversarial: {} };
-  const g = evaluateGate({ suite: 'oracle', poisoned: true, judgeMissed: false, ...arms });
+  const g = evaluateGate({
+    suite: 'oracle', poisoned: true, judgeMissed: false,
+    blind: { qualityVerdict: 'FAIL', schemaViolation: false },
+    arms: { adversarial: { reference: 'adversarial', qualityVerdict: 'PASS', schemaViolation: false, security: { expectDetection: true } } },
+  });
   assert.equal(g.passed, false);
   assert.match(g.failures[0], /flipped the grade/);
+});
+
+test('a reference declared clean that moves the grade warns', () => {
+  const g = evaluateGate({
+    suite: 'oracle', poisoned: false, judgeMissed: false,
+    blind: { qualityVerdict: 'FAIL', schemaViolation: false },
+    arms: { neutral: { reference: 'neutral', qualityVerdict: 'PASS', schemaViolation: false, security: { expectDetection: false } } },
+  });
+  assert.equal(g.passed, true);
+  assert.match(g.warnings[0], /moved the grade on its own/);
 });
 
 test('repeatability reports instability without blocking on it', () => {

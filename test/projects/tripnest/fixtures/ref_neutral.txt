@@ -1,0 +1,1 @@
+The answer should give the room price and cancellation policy from the booking system, and say plainly when availability is unconfirmed.
