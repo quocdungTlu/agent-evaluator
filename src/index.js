@@ -8,6 +8,7 @@ import { printResult, printGate, saveResult } from './report.js';
 import { evaluateGate, EXIT } from './gate.js';
 import { loadManifest } from './manifest.js';
 import { createContext } from './context.js';
+import { evaluationProtocol } from './protocol.js';
 
 const USAGE = `Usage: npm run eval -- <suite> [options]
 
@@ -84,7 +85,13 @@ async function main() {
     printGate(gate);
     // The gate travels with the artifact: a stored result should carry the
     // decision that was made from it, not just the numbers behind it.
-    saveResult({ ...result, gate, manifest: { name: manifest.name, hashes: manifest.hashes } });
+    saveResult({
+      ...result,
+      gate,
+      manifest: { name: manifest.name, path: manifest.path },
+      // Stamped after the run, using the model the API actually resolved.
+      protocol: evaluationProtocol(manifest, { resolvedModel: result.provenance?.resolvedModel }),
+    });
   }
 
   const failed = gates.filter((g) => !g.passed);
