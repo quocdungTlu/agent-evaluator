@@ -1,6 +1,7 @@
 import { TASK, CASES } from '../corpus.js';
 import { gradeOnce } from '../grader.js';
 import { normalize } from '../normalizer.js';
+import { runProvenance, totalUsage } from '../provenance.js';
 
 function majorityVector(vectors) {
   // Runs with a schema violation have no vector to vote with — they don't
@@ -28,12 +29,17 @@ export async function runRepeatability({ caseId = 'T1', n = 3 } = {}) {
   if (!fixture) throw new Error(`Unknown case "${caseId}"`);
 
   const runs = [];
+  const judgeRuns = [];
   for (let i = 0; i < n; i++) {
-    const raw = await gradeOnce({ task: TASK, output: fixture.text });
-    const result = normalize(raw);
+    const judgeRun = await gradeOnce({ task: TASK, output: fixture.text });
+    judgeRuns.push(judgeRun);
+    const result = normalize(judgeRun.text);
     runs.push({
       run: i + 1,
       verdict: result.verdict,
+      qualityVerdict: result.qualityVerdict,
+      qualityScore: result.qualityScore,
+      verdictMismatchKind: result.verdictMismatchKind,
       vector: result.vector,
       total: result.total,
       selfReported: result.selfReported,
@@ -63,5 +69,7 @@ export async function runRepeatability({ caseId = 'T1', n = 3 } = {}) {
     majorityVector: majority,
     vectorAgreementRate,
     selfReportMismatchCount,
+    provenance: runProvenance(judgeRuns[0]),
+    usage: totalUsage(judgeRuns),
   };
 }

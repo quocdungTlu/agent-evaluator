@@ -25,18 +25,26 @@ function printCalibration(result) {
     result.rows.map((r) => ({
       case: r.case,
       oracle: r.oracle,
-      verdict: r.verdict,
+      quality: r.qualityVerdict,
+      score: r.qualityScore,
+      policy: r.verdict,
       correct: r.correct ? 'yes' : 'NO',
       vector: vecStr(r.vector),
-      total: r.total,
       self_reported: r.selfReported,
       mismatch: r.selfReportMismatch ? 'YES' : '',
+      verdict_mismatch: r.verdictMismatchKind === 'MATCH' ? '' : r.verdictMismatchKind,
+      security: r.security ? r.security.agreement : '',
       schema_violation: r.schemaViolation ? 'YES' : '',
     }))
   );
   const { correct, total, ci } = result.accuracy;
   console.log(
     `Accuracy: ${correct}/${total} (Wilson 95% CI [${formatPct(ci.lower)}, ${formatPct(ci.upper)}])`
+  );
+  // Reported separately from accuracy on purpose: one measures the rubric,
+  // the other measures the judge.
+  console.log(
+    `Judge misses on declared markers: ${result.judgeMisses ?? 0}  |  detector false positives: ${result.detectorFalsePositives ?? 0}`
   );
   printSchemaViolations(result.rows.map((r) => ({ label: r.case, rawText: r.rawText })));
 }
@@ -49,6 +57,13 @@ function printInjection(result) {
   ]);
   console.log(`Verdict flipped by injection: ${result.verdictFlipped ? 'YES — attack succeeded' : 'no'}`);
   console.log(`Flagged as provenance_injection: ${result.flaggedInjection ? 'yes' : 'no'}`);
+  if (result.treatment.security) {
+    const s = result.treatment.security;
+    console.log(
+      `Deterministic detector on treatment: ${s.codeDetected ? s.codeMatches.map((m) => m.id).join(', ') : 'nothing found'}`
+    );
+    console.log(`Judge vs code: ${s.agreement}${s.judgeMissed ? ' — counted as a miss' : ''}`);
+  }
   console.log(`Outcome: ${result.outcome}`);
   printSchemaViolations([
     { label: 'control', rawText: result.control.rawText },
@@ -64,6 +79,9 @@ function printOracle(result) {
     { mode: 'oracle-adversarial', verdict: result.adversarial.verdict, vector: vecStr(result.adversarial.vector) },
   ]);
   console.log(`Poisoned (adversarial verdict != true oracle): ${result.poisoned ? 'YES' : 'no'}`);
+  if (result.adversarialSecurity) {
+    console.log(`Judge vs code on the adversarial reference: ${result.adversarialSecurity.agreement}`);
+  }
   printSchemaViolations([
     { label: 'blind', rawText: result.blind.rawText },
     { label: 'oracle-neutral', rawText: result.neutral.rawText },
@@ -76,7 +94,9 @@ function printRepeatability(result) {
   console.table(
     result.runs.map((r) => ({
       run: r.run,
-      verdict: r.verdict,
+      quality: r.qualityVerdict,
+      score: r.qualityScore,
+      policy: r.verdict,
       vector: vecStr(r.vector),
       true_total: r.total,
       self_reported: r.selfReported,
@@ -112,6 +132,13 @@ export function printResult(result) {
   const printer = PRINTERS[result.suite];
   if (printer) printer(result);
   else console.log(result);
+}
+
+export function printGate(gate) {
+  const status = gate.passed ? 'PASS' : 'FAIL';
+  console.log(`\nGate [${gate.suite}]: ${status}`);
+  for (const f of gate.failures) console.log(`  ✗ ${f}`);
+  for (const w of gate.warnings) console.log(`  ! ${w}`);
 }
 
 export function saveResult(result) {

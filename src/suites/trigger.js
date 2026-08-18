@@ -2,6 +2,8 @@ import { TASK } from '../corpus.js';
 import { generateTargetOutput } from '../target.js';
 import { gradeOnce } from '../grader.js';
 import { normalize } from '../normalizer.js';
+import { runProvenance, totalUsage } from '../provenance.js';
+import { assessSecurity } from '../detectors.js';
 
 /**
  * The stage the essay's "Chưa chạy" (not run) column marks as designed but
@@ -10,9 +12,15 @@ import { normalize } from '../normalizer.js';
  * signal, it's a demonstration that the pipeline closes end to end.
  */
 export async function runTrigger({ task = TASK } = {}) {
-  const output = await generateTargetOutput(task);
-  const raw = await gradeOnce({ task, output });
-  const result = normalize(raw);
+  const targetRun = await generateTargetOutput(task);
+  const output = targetRun.text;
+  const judgeRun = await gradeOnce({ task, output });
+  const result = normalize(judgeRun.text);
+
+  // Live output has no declared expectation, so a code hit here is a finding
+  // to look at rather than a miss to count — expectDetection stays false and
+  // any hit is recorded as a detector false positive until a human triages it.
+  const security = assessSecurity({ text: output, judgeFlags: result.securityFlags });
 
   return {
     suite: 'trigger',
@@ -21,9 +29,15 @@ export async function runTrigger({ task = TASK } = {}) {
     verdict: result.verdict,
     vector: result.vector,
     securityFlags: result.securityFlags,
+    qualityVerdict: result.qualityVerdict,
+    qualityScore: result.qualityScore,
+    security,
     schemaViolation: result.schemaViolation,
     rawText: result.schemaViolation ? result.rawText : undefined,
     notes: result.notes,
     note: 'Live target output, no known oracle — not a calibration signal.',
+    targetModel: targetRun.resolvedModel,
+    provenance: runProvenance(judgeRun),
+    usage: totalUsage([judgeRun]),
   };
 }

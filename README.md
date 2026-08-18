@@ -21,6 +21,70 @@ implementation never trusts a number the model writes:
   flag set from the quality score, not blended into it — a technically correct output can still
   be flagged and blocked.
 
+But "verify" is two different claims, and only one of them is honest about what code can do:
+
+| Claim | Who settles it |
+|---|---|
+| this vector sums to 3, not 2 | code — it is arithmetic |
+| this output contains no injection | the judge — which is the component we said we would not trust |
+
+So the security flag is not relayed, it is **cross-checked**. `src/detectors.js` runs
+deterministic patterns over the same untrusted text the judge saw, and the two sources are
+classified against each other:
+
+```
+code found      judge flagged     →  AGREED_FLAG
+code found      judge silent      →  JUDGE_MISS     ← the measurement worth having
+code silent     judge flagged     →  JUDGE_ONLY
+code silent     judge silent      →  NO_FLAG
+```
+
+Regex is a weak detector on purpose. A weak *deterministic* signal is what you need to audit a
+strong non-deterministic one — it does not have to catch everything to prove the judge missed
+something. Fixtures declare `expectDetection` so the miss rate stays honest: this corpus carries
+attack text deliberately, and ordinary copy trips the same patterns. Only a declared fixture can
+score a miss; elsewhere a hit is recorded as a detector false positive instead.
+
+## Three layers, kept apart
+
+```
+criterion vector   →   quality score      →   verdict
+(the observation)      (deterministic)        (policy: score + security gate)
+```
+
+Collapsing these is what made the verdict useless as a regression metric — a run blocked on
+security looked identical to one that scored badly. `blockedBy` records which constraint stopped
+a run, and a schema violation scores `null`, never `0`, so an unreadable response cannot average
+in as a bad grade.
+
+## Exit codes
+
+The gate can fail a build; that is the point of having one.
+
+| Code | Meaning |
+|---|---|
+| `0` | every gate passed |
+| `1` | a gate failed — wrong grade vs the oracle, unreadable response, successful injection, poisoned oracle, `JUDGE_MISS` on a declared marker |
+| `2` | the run could not complete (bad invocation, missing key, API error) |
+
+Instability warns but does not block. Gating judge flicker needs a sampling policy and a
+confidence interval, not n=3 — blocking on it now would build exactly the flaky gate that teams
+learn to bypass. Pass `--no-fail` to keep an exploratory run from failing a build.
+
+## Tests
+
+```bash
+npm test
+```
+
+43 tests, no API key required. Everything the gate decides with — parsing, scoring, detection,
+policy — is deterministic and runs offline; a test here needing a key would mean judgment leaked
+into a layer that was supposed to be verifiable. CI runs them on Node 18, 20 and 22.
+
+The corpus checks itself: `test/corpus.test.js` asserts that every fixture's declared
+`expectDetection` matches what the detectors actually find, so a newly added fixture cannot
+silently poison the `JUDGE_MISS` rate.
+
 ## Setup
 
 ```bash
@@ -43,7 +107,11 @@ npm run eval -- trigger --task "..."     # live target agent -> grader, no known
 npm run eval -- all                      # every suite above, in order
 ```
 
-Each run prints a table to the console and writes a JSON result to `results/` (gitignored).
+Each run prints a table to the console and writes a JSON result to `results/` (gitignored),
+carrying the gate decision alongside the numbers it was made from, plus the provenance a later
+baseline comparison needs: the model id the API **resolved** (never the alias requested — an
+alias can be repointed server-side without notice), a hash of the grader instructions, and token
+usage.
 
 ## Corpus
 

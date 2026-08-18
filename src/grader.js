@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
@@ -59,10 +60,23 @@ function buildUserMessage({ task, output, expected }) {
   return msg;
 }
 
+// Hash of the exact grader instructions this build sends. Two runs are only
+// comparable if this matches: rewording a criterion changes what the score
+// means, so a baseline collected under a different template is a different
+// measurement, not a worse or better one.
+export const PROMPT_TEMPLATE_HASH = createHash('sha256')
+  .update(SYSTEM_PROMPT, 'utf8')
+  .digest('hex');
+
 /**
  * Runs Grader v1 once against one (task, output, expected?) triple.
- * Returns the raw text response — callers normalize it deterministically
- * rather than trusting any score the model writes inline.
+ * Returns the raw text alongside the provenance the caller needs to decide
+ * whether this run is comparable to another: the model id the API actually
+ * resolved (never the alias we asked for — an alias can be repointed
+ * server-side without notice), token usage, and the stop reason.
+ *
+ * Callers normalize the text deterministically rather than trusting any
+ * score the model writes inline.
  */
 export async function gradeOnce({ task, output, expected }) {
   const response = await client().messages.create({
@@ -76,7 +90,20 @@ export async function gradeOnce({ task, output, expected }) {
     messages: [{ role: 'user', content: buildUserMessage({ task, output, expected }) }],
   });
   const block = response.content.find((b) => b.type === 'text');
-  return block ? block.text : '';
+  return {
+    text: block ? block.text : '',
+    // requested alias vs what the server actually ran
+    requestedModel: MODEL,
+    resolvedModel: response.model,
+    stopReason: response.stop_reason,
+    usage: response.usage
+      ? {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        }
+      : null,
+    promptTemplateHash: PROMPT_TEMPLATE_HASH,
+  };
 }
 
-export { MODEL };
+export { MODEL, SYSTEM_PROMPT };

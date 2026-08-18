@@ -8,7 +8,8 @@
     "agent-evaluator": "./src/index.js"
   },
   "scripts": {
-    "eval": "node src/index.js"
+    "eval": "node src/index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1"
