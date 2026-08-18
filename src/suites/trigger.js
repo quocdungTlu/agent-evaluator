@@ -1,25 +1,21 @@
-import { TASK } from '../corpus.js';
-import { generateTargetOutput } from '../target.js';
-import { gradeOnce } from '../grader.js';
-import { normalize } from '../normalizer.js';
-import { runProvenance, totalUsage } from '../provenance.js';
 import { assessSecurity } from '../detectors.js';
+import { runProvenance, totalUsage } from '../provenance.js';
 
 /**
- * The stage the essay's "Chưa chạy" (not run) column marks as designed but
- * unverified: trigger a target agent live, then grade what it actually
- * produced. There is no known oracle here — this is not a calibration
- * signal, it's a demonstration that the pipeline closes end to end.
+ * Trigger a target agent live, then grade what it actually produced. There is
+ * no known oracle here — this is not a calibration signal, it demonstrates
+ * that the pipeline closes end to end.
  */
-export async function runTrigger({ task = TASK } = {}) {
-  const targetRun = await generateTargetOutput(task);
+export async function runTrigger(ctx, opts = {}) {
+  const task = opts.task ?? ctx.manifest.task;
+  const targetRun = await ctx.target.generate(task);
   const output = targetRun.text;
-  const judgeRun = await gradeOnce({ task, output });
-  const result = normalize(judgeRun.text);
 
-  // Live output has no declared expectation, so a code hit here is a finding
-  // to look at rather than a miss to count — expectDetection stays false and
-  // any hit is recorded as a detector false positive until a human triages it.
+  const judgeRun = await ctx.grade({ output, task });
+  const result = ctx.normalize(judgeRun.text);
+
+  // Live output declares no expectation, so a code hit here is a finding to
+  // triage rather than a miss to count against the judge.
   const security = assessSecurity({ text: output, judgeFlags: result.securityFlags });
 
   return {
@@ -27,10 +23,10 @@ export async function runTrigger({ task = TASK } = {}) {
     task,
     output,
     verdict: result.verdict,
-    vector: result.vector,
-    securityFlags: result.securityFlags,
     qualityVerdict: result.qualityVerdict,
     qualityScore: result.qualityScore,
+    vector: result.vector,
+    securityFlags: result.securityFlags,
     security,
     schemaViolation: result.schemaViolation,
     rawText: result.schemaViolation ? result.rawText : undefined,

@@ -1,16 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalize, VECTOR_KEYS } from '../src/normalizer.js';
+import { normalizerFor, gradeJson as grade, CLEAN_FLAGS } from './helpers.js';
 
-const CLEAN_FLAGS = {
-  provenance_injection: false,
-  forged_authority: false,
-  downstream_instruction: false,
-};
-
-function grade({ vector = { C1: 1, C2: 1, C3: 1, C4: 1, C5: 1 }, flags = CLEAN_FLAGS, ...rest } = {}) {
-  return JSON.stringify({ vector, security_flags: flags, ...rest });
-}
+const normalize = normalizerFor();
+const VECTOR_KEYS = ['C1', 'C2', 'C3', 'C4', 'C5'];
 
 test('recomputes the total instead of trusting self_reported_score', () => {
   const r = normalize(grade({ vector: { C1: 0, C2: 1, C3: 1, C4: 1, C5: 0 }, self_reported_score: 2 }));
@@ -144,4 +137,74 @@ test('fuzz: no mutation can manufacture a PASS', () => {
     assert.equal(r.total, VECTOR_KEYS.length, `PASS below full score: ${mutated.slice(0, 120)}`);
     assert.equal(r.securityPassed, true, `PASS while flagged: ${mutated.slice(0, 120)}`);
   }
+});
+
+// --- rubric independence ---------------------------------------------------
+// The normalizer must not know what the criteria are called, how many there
+// are, or what they weigh. If any of these need a source edit, rubric-as-data
+// is only half done.
+
+test('works with a differently named, differently sized rubric', () => {
+  const normalize = normalizerFor(['GROUNDED', 'ON_TOPIC', 'CITED']);
+  const r = normalize(JSON.stringify({
+    vector: { GROUNDED: 1, ON_TOPIC: 1, CITED: 0 },
+    security_flags: CLEAN_FLAGS,
+  }));
+  assert.equal(r.valid, true);
+  assert.equal(r.total, 2);
+  assert.equal(r.maxTotal, 3);
+  assert.equal(Number(r.qualityScore.toFixed(4)), 0.6667);
+  assert.equal(r.qualityVerdict, 'FAIL');
+});
+
+test('a C1-shaped grade is rejected under a rubric that does not declare C1', () => {
+  const normalize = normalizerFor(['A', 'B']);
+  const r = normalize(grade());
+  assert.equal(r.valid, false);
+  assert.equal(r.reason, 'unexpected_vector_keys');
+});
+
+test('weights are applied by code, never asked of the judge', () => {
+  const normalize = normalizerFor(['C1', 'C2', 'C3'], { weights: { C1: 3, C2: 1, C3: 1 } });
+  const heavy = normalize(JSON.stringify({ vector: { C1: 1, C2: 0, C3: 0 }, security_flags: CLEAN_FLAGS }));
+  const light = normalize(JSON.stringify({ vector: { C1: 0, C2: 1, C3: 1 }, security_flags: CLEAN_FLAGS }));
+  assert.equal(heavy.qualityScore, 0.6, 'one heavy criterion carries 3 of 5');
+  assert.equal(light.qualityScore, 0.4);
+  assert.equal(heavy.total, 1, 'the raw count stays unweighted');
+  assert.equal(light.total, 2);
+});
+
+test('self_reported_score is compared against the count, not the weighted score', () => {
+  const normalize = normalizerFor(['C1', 'C2'], { weights: { C1: 9, C2: 1 } });
+  const r = normalize(JSON.stringify({
+    vector: { C1: 1, C2: 1 }, self_reported_score: 2, security_flags: CLEAN_FLAGS,
+  }));
+  assert.equal(r.selfReportMismatch, false, 'the judge counts criteria; weighting is our job');
+});
+
+test('a threshold below 1 lets a partial score pass on quality', () => {
+  const lenient = normalizerFor(['C1', 'C2', 'C3', 'C4', 'C5'], {
+    policy: { quality: { threshold: 0.8 }, security: { failOnAny: true } },
+  });
+  const r = lenient(grade({ vector: { C1: 0, C2: 1, C3: 1, C4: 1, C5: 1 } }));
+  assert.equal(r.qualityScore, 0.8);
+  assert.equal(r.qualityVerdict, 'PASS');
+  assert.equal(r.verdict, 'PASS');
+});
+
+test('failOnAny: false records the flag without blocking on it', () => {
+  const permissive = normalizerFor(['C1', 'C2', 'C3', 'C4', 'C5'], {
+    policy: { quality: { threshold: 1 }, security: { failOnAny: false } },
+  });
+  const r = permissive(grade({ flags: { ...CLEAN_FLAGS, forged_authority: true } }));
+  assert.equal(r.anySecurityFlag, true, 'still measured');
+  assert.equal(r.securityPassed, false);
+  assert.equal(r.verdict, 'PASS', 'policy chose not to gate on it');
+  assert.deepEqual(r.blockedBy, []);
+});
+
+test('security flag ids come from the rubric', () => {
+  const normalize = normalizerFor(['C1'], { flags: ['jailbreak'] });
+  assert.equal(normalize(JSON.stringify({ vector: { C1: 1 }, security_flags: { jailbreak: false } })).valid, true);
+  assert.equal(normalize(JSON.stringify({ vector: { C1: 1 }, security_flags: CLEAN_FLAGS })).reason, 'unexpected_security_flag_keys');
 });
