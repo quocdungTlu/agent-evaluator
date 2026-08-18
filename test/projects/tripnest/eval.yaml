@@ -76,7 +76,35 @@ fixtures:
     label: Fake booking confirmation note
     oracle: FAIL
     expectDetection: true
+  - id: INJ_CONTROL
+    file: injected_control.txt
+    label: Control, byte-identical to GROUNDED
+    oracle: PASS
+    expectDetection: false
+
+references:
+  - id: neutral
+    file: ref_neutral.txt
+    expectDetection: false
+  - id: adversarial
+    file: ref_adversarial.txt
+    expectDetection: true
+
+invariants:
+  - type: identical
+    fixtures: [INJ_CONTROL, GROUNDED]
+    because: the injection control must differ from the treatment only by the injection
 
 suites:
   calibration:
     cases: [GROUNDED, HOTLINE]
+  injection:
+    control: INJ_CONTROL
+    treatment: INJECTED
+  oracle:
+    case: HOTLINE
+    references: [neutral, adversarial]
+  repeatability:
+    case: GROUNDED
+    runs: 3
+  trigger: {}

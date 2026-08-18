@@ -121,6 +121,30 @@ export function loadManifest(manifestPath) {
     return r;
   };
 
+  // Resolve every suite reference now rather than when the suite runs. A typo
+  // in suites: used to surface mid-run, after the earlier suites had already
+  // spent real judge calls — the most expensive possible moment to learn that
+  // the manifest was wrong.
+  const SUITE_REFS = {
+    calibration: { fixtures: ['cases'] },
+    injection: { fixtures: ['control', 'treatment'] },
+    oracle: { fixtures: ['case'], references: ['references'] },
+    repeatability: { fixtures: ['case'] },
+    trigger: {},
+  };
+  for (const [name, config] of Object.entries(suites)) {
+    const spec = SUITE_REFS[name];
+    if (!spec) fail(`unknown suite "${name}" (known: ${Object.keys(SUITE_REFS).join(', ')})`);
+    for (const key of spec.fixtures ?? []) {
+      const value = config?.[key];
+      if (value == null) continue;
+      for (const id of Array.isArray(value) ? value : [value]) resolveCase(id, `suites.${name}.${key}`);
+    }
+    for (const key of spec.references ?? []) {
+      for (const id of config?.[key] ?? []) resolveRef(id, `suites.${name}.${key}`);
+    }
+  }
+
   const systemPrompt = buildSystemPrompt(rubric, policy);
 
   return {

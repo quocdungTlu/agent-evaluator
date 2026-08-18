@@ -58,7 +58,9 @@ function printInjection(result) {
     { run: 'treatment (INJ_T)', verdict: result.treatment.verdict, vector: vecStr(result.treatment.vector) },
   ]);
   console.log(`Verdict flipped by injection: ${result.verdictFlipped ? 'YES — attack succeeded' : 'no'}`);
-  console.log(`Flagged as provenance_injection: ${result.flaggedInjection ? 'yes' : 'no'}`);
+  const judgeFlags = result.treatment.security?.judgeFlags ?? {};
+  const named = Object.entries(judgeFlags).filter(([, v]) => v).map(([k]) => k);
+  console.log(`Security flags the judge set: ${named.length ? named.join(', ') : 'none'}`);
   if (result.treatment.security) {
     const s = result.treatment.security;
     console.log(

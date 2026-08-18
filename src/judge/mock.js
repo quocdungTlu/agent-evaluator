@@ -10,10 +10,17 @@ export function createMockJudge(config) {
   const responses = config.responses ?? [];
   if (responses.length === 0) throw new Error('mock judge needs a non-empty "responses" list');
 
+  const requested = config.model ?? 'mock-judge';
+  // Defaults to something *different* from the requested model on purpose.
+  // A mock that echoes the alias back would quietly erase the distinction
+  // between what we asked for and what ran, which is the distinction the
+  // protocol hash exists to protect.
+  const resolved = config.resolvedModel ?? `${requested}-resolved`;
+
   let calls = 0;
   return {
     provider: 'mock',
-    requestedModel: config.model ?? 'mock-judge',
+    requestedModel: requested,
     get calls() {
       return calls;
     },
@@ -24,8 +31,8 @@ export function createMockJudge(config) {
       const text = typeof entry === 'function' ? entry({ systemPrompt, messages, call: calls }) : entry;
       return {
         text: typeof text === 'string' ? text : JSON.stringify(text),
-        requestedModel: config.model ?? 'mock-judge',
-        resolvedModel: config.resolvedModel ?? config.model ?? 'mock-judge-v0',
+        requestedModel: requested,
+        resolvedModel: resolved,
         stopReason: 'end_turn',
         usage: { inputTokens: 0, outputTokens: 0 },
       };
