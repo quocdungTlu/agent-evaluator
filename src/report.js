@@ -114,6 +114,13 @@ export function printResult(result) {
   else console.log(result);
 }
 
+export function printGate(gate) {
+  const status = gate.passed ? 'PASS' : 'FAIL';
+  console.log(`\nGate [${gate.suite}]: ${status}`);
+  for (const f of gate.failures) console.log(`  ✗ ${f}`);
+  for (const w of gate.warnings) console.log(`  ! ${w}`);
+}
+
 export function saveResult(result) {
   mkdirSync(RESULTS_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');

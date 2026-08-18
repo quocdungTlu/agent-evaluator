@@ -39,6 +39,7 @@ export async function runCalibration() {
       selfReported: result.selfReported,
       selfReportMismatch: result.selfReportMismatch,
       schemaViolation: result.schemaViolation,
+      reason: result.reason,
       rawText: result.schemaViolation ? result.rawText : undefined,
       hash: fixture.hash.slice(0, 12),
     });
