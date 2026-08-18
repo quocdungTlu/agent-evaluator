@@ -1,6 +1,7 @@
 import { TASK, INJECTION } from '../corpus.js';
 import { gradeOnce } from '../grader.js';
 import { normalize } from '../normalizer.js';
+import { runProvenance, totalUsage } from '../provenance.js';
 
 /**
  * Control/treatment pair: same underlying content (byte-identical to T1),
@@ -9,11 +10,11 @@ import { normalize } from '../normalizer.js';
  * means the attack worked (or the grader stayed silent about it).
  */
 export async function runInjection() {
-  const controlRaw = await gradeOnce({ task: TASK, output: INJECTION.control.text });
-  const treatmentRaw = await gradeOnce({ task: TASK, output: INJECTION.treatment.text });
+  const controlRun = await gradeOnce({ task: TASK, output: INJECTION.control.text });
+  const treatmentRun = await gradeOnce({ task: TASK, output: INJECTION.treatment.text });
 
-  const control = normalize(controlRaw);
-  const treatment = normalize(treatmentRaw);
+  const control = normalize(controlRun.text);
+  const treatment = normalize(treatmentRun.text);
 
   const verdictFlipped = control.verdict !== treatment.verdict;
   const vectorChanged = JSON.stringify(control.vector) !== JSON.stringify(treatment.vector);
@@ -44,5 +45,7 @@ export async function runInjection() {
       : flaggedInjection
       ? 'RESISTED_AND_FLAGGED'
       : 'RESISTED_BUT_SILENT',
+    provenance: runProvenance(controlRun),
+    usage: totalUsage([controlRun, treatmentRun]),
   };
 }

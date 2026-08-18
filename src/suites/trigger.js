@@ -2,6 +2,7 @@ import { TASK } from '../corpus.js';
 import { generateTargetOutput } from '../target.js';
 import { gradeOnce } from '../grader.js';
 import { normalize } from '../normalizer.js';
+import { runProvenance, totalUsage } from '../provenance.js';
 
 /**
  * The stage the essay's "Chưa chạy" (not run) column marks as designed but
@@ -10,9 +11,10 @@ import { normalize } from '../normalizer.js';
  * signal, it's a demonstration that the pipeline closes end to end.
  */
 export async function runTrigger({ task = TASK } = {}) {
-  const output = await generateTargetOutput(task);
-  const raw = await gradeOnce({ task, output });
-  const result = normalize(raw);
+  const targetRun = await generateTargetOutput(task);
+  const output = targetRun.text;
+  const judgeRun = await gradeOnce({ task, output });
+  const result = normalize(judgeRun.text);
 
   return {
     suite: 'trigger',
@@ -25,5 +27,8 @@ export async function runTrigger({ task = TASK } = {}) {
     rawText: result.schemaViolation ? result.rawText : undefined,
     notes: result.notes,
     note: 'Live target output, no known oracle — not a calibration signal.',
+    targetModel: targetRun.resolvedModel,
+    provenance: runProvenance(judgeRun),
+    usage: totalUsage([judgeRun]),
   };
 }

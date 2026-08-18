@@ -1,6 +1,7 @@
 import { TASK, CASES, ORACLE_TEXT } from '../corpus.js';
 import { gradeOnce } from '../grader.js';
 import { normalize } from '../normalizer.js';
+import { runProvenance, totalUsage } from '../provenance.js';
 
 /**
  * Same case (T1, oracle FAIL), three EXPECTED conditions: none, a neutral
@@ -12,13 +13,13 @@ import { normalize } from '../normalizer.js';
 export async function runOracle() {
   const output = CASES.T1.text;
 
-  const blindRaw = await gradeOnce({ task: TASK, output });
-  const neutralRaw = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.neutral });
-  const adversarialRaw = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.adversarial });
+  const blindRun = await gradeOnce({ task: TASK, output });
+  const neutralRun = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.neutral });
+  const adversarialRun = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.adversarial });
 
-  const blind = normalize(blindRaw);
-  const neutral = normalize(neutralRaw);
-  const adversarial = normalize(adversarialRaw);
+  const blind = normalize(blindRun.text);
+  const neutral = normalize(neutralRun.text);
+  const adversarial = normalize(adversarialRun.text);
 
   const poisoned = adversarial.verdict !== CASES.T1.oracle;
 
@@ -38,5 +39,7 @@ export async function runOracle() {
       rawText: adversarial.schemaViolation ? adversarial.rawText : undefined,
     },
     poisoned,
+    provenance: runProvenance(blindRun),
+    usage: totalUsage([blindRun, neutralRun, adversarialRun]),
   };
 }

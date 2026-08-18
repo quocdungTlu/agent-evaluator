@@ -1,6 +1,7 @@
 import { TASK, CASES } from '../corpus.js';
 import { gradeOnce } from '../grader.js';
 import { normalize } from '../normalizer.js';
+import { runProvenance, totalUsage } from '../provenance.js';
 import { wilsonInterval } from '../stats.js';
 
 /**
@@ -10,9 +11,11 @@ import { wilsonInterval } from '../stats.js';
  */
 export async function runCalibration() {
   const rows = [];
+  const judgeRuns = [];
   for (const [caseId, fixture] of Object.entries(CASES)) {
-    const raw = await gradeOnce({ task: TASK, output: fixture.text });
-    const result = normalize(raw);
+    const judgeRun = await gradeOnce({ task: TASK, output: fixture.text });
+    judgeRuns.push(judgeRun);
+    const result = normalize(judgeRun.text);
     rows.push({
       case: caseId,
       label: fixture.label,
@@ -36,5 +39,7 @@ export async function runCalibration() {
     suite: 'calibration',
     rows,
     accuracy: { correct, total: rows.length, ci },
+    provenance: runProvenance(judgeRuns[0]),
+    usage: totalUsage(judgeRuns),
   };
 }

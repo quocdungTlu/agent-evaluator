@@ -28,5 +28,13 @@ export async function generateTargetOutput(task) {
     messages: [{ role: 'user', content: task }],
   });
   const block = response.content.find((b) => b.type === 'text');
-  return block ? block.text : '';
+  return {
+    text: block ? block.text : '',
+    requestedModel: MODEL,
+    resolvedModel: response.model,
+    stopReason: response.stop_reason,
+    usage: response.usage
+      ? { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
+      : null,
+  };
 }
