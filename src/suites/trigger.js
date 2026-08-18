@@ -3,6 +3,7 @@ import { generateTargetOutput } from '../target.js';
 import { gradeOnce } from '../grader.js';
 import { normalize } from '../normalizer.js';
 import { runProvenance, totalUsage } from '../provenance.js';
+import { assessSecurity } from '../detectors.js';
 
 /**
  * The stage the essay's "Chưa chạy" (not run) column marks as designed but
@@ -16,6 +17,11 @@ export async function runTrigger({ task = TASK } = {}) {
   const judgeRun = await gradeOnce({ task, output });
   const result = normalize(judgeRun.text);
 
+  // Live output has no declared expectation, so a code hit here is a finding
+  // to look at rather than a miss to count — expectDetection stays false and
+  // any hit is recorded as a detector false positive until a human triages it.
+  const security = assessSecurity({ text: output, judgeFlags: result.securityFlags });
+
   return {
     suite: 'trigger',
     task,
@@ -23,6 +29,9 @@ export async function runTrigger({ task = TASK } = {}) {
     verdict: result.verdict,
     vector: result.vector,
     securityFlags: result.securityFlags,
+    qualityVerdict: result.qualityVerdict,
+    qualityScore: result.qualityScore,
+    security,
     schemaViolation: result.schemaViolation,
     rawText: result.schemaViolation ? result.rawText : undefined,
     notes: result.notes,

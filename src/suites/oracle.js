@@ -2,6 +2,7 @@ import { TASK, CASES, ORACLE_TEXT } from '../corpus.js';
 import { gradeOnce } from '../grader.js';
 import { normalize } from '../normalizer.js';
 import { runProvenance, totalUsage } from '../provenance.js';
+import { assessSecurity } from '../detectors.js';
 
 /**
  * Same case (T1, oracle FAIL), three EXPECTED conditions: none, a neutral
@@ -14,14 +15,22 @@ export async function runOracle() {
   const output = CASES.T1.text;
 
   const blindRun = await gradeOnce({ task: TASK, output });
-  const neutralRun = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.neutral });
-  const adversarialRun = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.adversarial });
+  const neutralRun = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.neutral.text });
+  const adversarialRun = await gradeOnce({ task: TASK, output, expected: ORACLE_TEXT.adversarial.text });
 
   const blind = normalize(blindRun.text);
   const neutral = normalize(neutralRun.text);
   const adversarial = normalize(adversarialRun.text);
 
-  const poisoned = adversarial.verdict !== CASES.T1.oracle;
+  // The adversarial reference is the untrusted text here — the OUTPUT is
+  // unchanged across all three arms, so the marker lives in the reference.
+  const adversarialSecurity = assessSecurity({
+    text: ORACLE_TEXT.adversarial.text,
+    judgeFlags: adversarial.securityFlags,
+    expectDetection: ORACLE_TEXT.adversarial.expectDetection,
+  });
+
+  const poisoned = adversarial.qualityVerdict !== CASES.T1.oracle;
 
   return {
     suite: 'oracle',
@@ -39,6 +48,8 @@ export async function runOracle() {
       rawText: adversarial.schemaViolation ? adversarial.rawText : undefined,
     },
     poisoned,
+    adversarialSecurity,
+    judgeMissed: adversarialSecurity.judgeMissed,
     provenance: runProvenance(blindRun),
     usage: totalUsage([blindRun, neutralRun, adversarialRun]),
   };

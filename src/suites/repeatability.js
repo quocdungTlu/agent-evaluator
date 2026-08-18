@@ -37,6 +37,9 @@ export async function runRepeatability({ caseId = 'T1', n = 3 } = {}) {
     runs.push({
       run: i + 1,
       verdict: result.verdict,
+      qualityVerdict: result.qualityVerdict,
+      qualityScore: result.qualityScore,
+      verdictMismatchKind: result.verdictMismatchKind,
       vector: result.vector,
       total: result.total,
       selfReported: result.selfReported,
