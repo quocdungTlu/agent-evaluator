@@ -1,0 +1,16 @@
+# Same rubric, same corpus, same policy — a different vendor's judge.
+#
+# This is the configuration the provider registry exists for. Grading Claude's
+# output with a Claude judge cannot distinguish "the output was good" from
+# "the model liked its own work"; pointing the judge at another vendor can.
+#
+# The protocol hash will differ from eval.yaml on `judgeModel` alone, so the
+# two are correctly reported as NOT_COMPARABLE rather than silently diffed.
+version: 1
+extends: ./eval.yaml
+name: agent-evaluation-essay-openai-judge
+
+judge:
+  provider: openai
+  model: gpt-4.1-mini
+  maxTokens: 1024

@@ -155,6 +155,28 @@ new adapter plus a line in the registry, with no change to the normalizer, the s
 or the gate — which is what makes it possible to grade one model's output with a different model's
 judgment, rather than asking a model to grade itself.
 
+`anthropic`, `openai` and `mock` ship with it. To run the same rubric under a different vendor's
+judge, extend the manifest instead of copying it:
+
+```yaml
+# eval.openai-judge.yaml
+version: 1
+extends: ./eval.yaml
+judge:
+  provider: openai
+  model: gpt-4.1-mini
+```
+
+```bash
+export OPENAI_API_KEY=sk-...
+npm run eval -- calibration --manifest eval.openai-judge.yaml
+```
+
+A variant that redeclared the rubric would be a second copy free to drift, and two rubrics meant
+to be identical but quietly aren't is the fastest way to make a cross-judge comparison meaningless.
+The tests assert the variant's rubric, prompt, corpus and policy hashes all equal the base's, so
+the two runs differ on `judgeModel` and nothing else.
+
 ## Comparability
 
 Making the rubric data creates a hazard the hardcoded version did not have: the rubric can now
